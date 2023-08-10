@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html xmlns:th="www.thymeleaf.org">
+<head>
+<meta charset="UTF-8">
+<link href="/css/style.css" rel="stylesheet">
+<title>Insert title here</title>
+
+<script>
+  
+  let cartList = [];
+  
+  document.addEventListener('DOMContentLoaded', event => {
+    // "id=loginform"を持つ要素にて、"submit"イベントが発火した際にlogin関数を呼び出す
+    document.getElementById("loginForm").addEventListener("submit", login);
+    
+    // "class=cartBtn"を持つ要素(複数あるためidは使えない)をquerySelectorAllで取得する。
+    //クラス名から取得するため先頭に.を付ける。
+    const cartBtns = document.querySelectorAll(".cartBtn");
+    
+    // cartBtns をループさせ、個々のボタンにて"click"イベントが発生したとき、addCart関数を呼び出す。
+    cartBtns.forEach((btn) => {
+      btn.addEventListener("click", addCart);
+    });
+    
+    //"id=purchaseBtn"を持つ要素(複数存在するためにclass指定)にconfirmPurchase関数を割り当てる
+    document.getElementById("purchaseBtn").addEventListener("click", confirmPurchase);
+   
+   //"id=historyBtn"を持つ要素(複数存在するためにclass指定)にshowHistory関数を割り当てる
+    document.getElementById("historyBtn").addEventListener("click", showHistory);
+   });
+  
+  
+  //カート表初期化のための関数
+  function initCart(){
+    const tbody = document.querySelector("#cart tbody");
+    while(tbody.lastChild){
+      tbody.removeChild(tbody.lastChild);
+    }
+  }
+
+  function login(event) {
+    
+    //HTMLフォームのデフォルト動作(ページ遷移)が発生しないようにする
+    event.preventDefault();
+    
+    //カート表をクリア、CartListも空の配列に初期化
+    initCart();
+    cartList = [];
+    
+    //JavaにPOST送信するオブジェクトを取得・設定する。constは値が変化しない関数を入れるのに使う
+    const postObj = {
+      "userName": document.querySelector("input[name=userName]").value,
+      "password": document.querySelector("input[name=password]").value
+    };
+    
+    //Java側のControllerで、このURLにRequestMappingされているメゾットと通信する。
+    fetch("/ecsite/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(postObj),
+      //↑送信するJavaScriptデータをJSON形式に変換
+    })
+    .then(response => response.text())
+    .then(result => {
+      const user = JSON.parse(result);
+      //↑Javaから返ってきたJSON形式データをJavaScriptのオブジェクトに変換
+      document.getElementById("welcome").innerText = `ようこそ！ ${user.fullName}さん`;
+      //↑"welcome"IDがついているタグを呼び出し、その中の文字列を(innerText)、`ようこそ！ ${user.fullName}さん`に置き換える。
+      //``で囲むことによって文字列の中に変数を呼び出すことが出来る。
+      document.getElementById("hiddenUserId").value = user.id;
+      
+      document.querySelector("input[name=userName]").value = "";
+      document.querySelector("input[name=password]").value = "";
+      //ユーザー名とパスワード入力用のinput要素をquerySelectorで取得し、空文字で上書きクリア("")。いいの？
+      //querySelectorよりgetElementByIdの方が処理速度的には高速。
+    })
+    
+    .catch(error => {
+      console.error("Error:", error);
+    });
+  }
+    
+    function addCart(event){
+      // カート追加ボタンの親要素のさらに親要素(<tr th:each="item: ${goods}">)から、"td"要素をすべて抽出し、tdListに格納する。
+      const tdList = event.target.parentElement.parentElement.querySelectorAll("td");
+      
+      // tdListから、商品情報を取得し、JavaScriptオブジェクト形式(key: value)でgoodsInfoに代入する。カッコ内の数字はkey(0から始まる)。
+      const goodsInfo = {
+        "id":tdList.item(0).innerText,
+        "goodsName":tdList.item(1).innerText,
+        "price":tdList.item(2).innerText,
+        "count":tdList.item(3).querySelector("input").value
+      };
+      
+      //もし注文数が0または空欄の場合は以下を処理してaddCart関数自体が終了。
+      if(goodsInfo.count === "0" || goodsInfo.count === ""){
+        alert("注文数が0または空欄です。");
+        return;
+      }
+      // グローバル変数(関数の外で宣言された変数)であるcartListに対して、カート追加対象の商品情報をpushする。
+      cartList.push(goodsInfo);
+      
+      // push後はカート内をゼロから再構築するため、初期化。
+      initCart();
+      
+      // 以下cartListをループさせ、カート表を再構築するためのプログラム。cartは多分table idのやつだと思う…
+      cartList.forEach(cart => {
+        
+        // 新しく行(tr)を追加する変数
+        const tr = document.createElement("tr");
+        
+        // cartオブジェクトを[key, value]でループさせ、個々のtd要素を作成し、trに追加する。
+        // Object.entries()関数は要素を[key, value]の配列に変換するメゾット。
+        for ([key, value] of Object.entries(cart)){
+          const td = document.createElement("td");
+          td.innerText = value;
+          tr.appendChild(td);
+        }
+        
+        // カート削除ボタンを作成する。
+        const removeBtn = document.createElement("button");
+        removeBtn.innerText = "カート削除";
+        
+        // カート削除ボタンにclass属性を追加する。
+        removeBtn.setAttribute("class", "removeBtn");
+        
+        // カートボタンを"click"したときにremoveCart関数を呼び出すイベントリスナを作成する。
+        removeBtn.addEventListener("click", removeCart);
+        
+        // td要素を作成し、カート削除ボタンを子要素として追加する。for文の外にもう一度定義する必要がある？
+        const td = document.createElement("td");
+        td.appendChild(removeBtn);
+        
+        
+        // tr要素を作成し、カート削除ボタン配置済みのtdを子要素として追加する。
+        tr.appendChild(td);
+        
+        const tbody = document.querySelector("#cart tbody");
+        tbody.appendChild(tr);
+      });
+      
+    }
+    
+    function removeCart(event){
+      // 削除ボタンの親要素のさらに親要素を取得し、trに格納する。
+      const tr = event.target.parentElement.parentElement;
+      // tr内のすべての"td"を取得し、tdListに格納する。
+      const tdList = tr.querySelectorAll("td");
+      
+      // 削除対象のカート情報のidを取得する。
+      const id = tdList.item(0).innerText;
+      // 該当idと一致しない(=削除対象ではない)情報のみで、cartList内をフィルタリングする。
+      // →filter関数を使って、削除した情報を抜いた要素(return以降のcart.id !== idに当てはまる要素)で、配列を作り直す。
+      cartList = cartList.filter(cart => {
+        return cart.id !== id;
+      });
+      
+      // カート表の削除対象行から、子要素をすべて(一行まるまる)消去する。
+      while(tr.lastChild){
+        tr.removeChild(tr.lastChild);
+      }
+    }
+    
+    
+    //確認ダイアログを表示させるためのconfirmPurchase関数(自作)
+    function confirmPurchase(event) {
+      var txt;
+      //確認ダイアログの表示
+      var rt = confirm( "購入を確定しますか？" );
+      if (rt == true) {
+        purchase();
+         //ブラウザーに表示するテキストを代入する
+        document.getElementById("conf1").innerHTML = "お買い上げ誠に有難うございます。";
+      } else {
+       txt = "「キャンセル」を選択しました。";
+      }
+     
+    }
+    
+    
+    function purchase(event){
+      
+      //JavaにPOST送信するオブジェクトを取得・設定する
+      const postObj = {
+        "userId": document.getElementById("hiddenUserId").value,
+        "cartList":cartList
+      };
+      
+      fetch("/ecsite/api/purchase", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(postObj),
+      })
+      .then(response => response.text())
+      .then(result => {
+        alert(`${result}種類の商品を購入しました。`);
+        const countElements = document.querySelectorAll(".count");
+        countElements.forEach( element => {
+          element.value = 0;
+        });
+        
+        initCart();
+        
+        cartList = [];
+      })
+      
+      .catch(error => {
+        console.error("Error:",error);
+      });
+    }
+    
+    function showHistory(event){
+      
+      const postObj = {"userId": document.getElementById("hiddenUserId").value};
+      
+       fetch("/ecsite/api/history", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(postObj),
+      })
+      .then(response => response.text())
+      .then(result => {
+        const historyList = JSON.parse(result);
+        
+        //id="history"のテーブルからtbodyを取得する。
+        const tbody = document.querySelector("#history tbody");
+        
+        // 履歴表をすべてクリアする。
+        while(tbody.lastChild){
+        tbody.removeChild(tbody.lastChild);
+        }
+        
+        historyList.forEach((history, index) => {
+          
+          //createElement関数で<tr>要素作成
+          const tr = document.createElement("tr");
+          
+          // 履歴情報の中から、常に出力するキーを限定するために配列化しておく。
+          const keys = ["goodsName", "itemCount", "createdAt"];
+          
+          for (key of keys){
+            const td = document.createElement("td");
+            td.innerText = history[key];
+            tr.appendChild(td);
+          }
+          
+          tbody.appendChild(tr);
+          
+        });
+        })
+        
+        .catch(error => {
+        console.error("Error:",error);
+      });
+      
+    }
+    
+</script>
+</head>
+
+<body>
+  <header>
+    <h1>ECサイト</h1>
+    <div>
+      <form name="loginForm" id="loginForm" method="post" action="#">
+        ユーザー名：<input type="text" name="userName" />
+        パスワード：<input type="password" name="password" />
+        <button type="submit">ログイン</button>
+      </form>
+        
+      <span id="welcome"> -- ようこそ！　ゲストさん</span>
+      <input type="hidden" id="hiddenUserId" value="0" />
+    </div>
+  </header>
+  
+  <table id="goodsListTable">
+    <thead>
+      <tr>
+        <th>ID</th><th>商品名</th><th>価格</th><th>注文数</th><th>カート</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr th:each="item: ${goods}">
+        <td th:text="${item.id}" />
+        <td th:text="${item.goodsName}" />
+        <td th:text="${item.price}" />
+        <td><input type="number" class="count" value="0" /></td>
+        <td><button class="cartBtn">カートに入れる</button></td>
+      </tr>
+    </tbody>
+  </table>
+  
+  <fieldset>
+    <legend>カート</legend>
+    <table id="cart">
+      <thead>
+        <tr>
+          <th>ID</th><th>商品名</th><th>価格</th><th>注文数</th><th>カート</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      </tbody>
+    </table>
+    <button id ="purchaseBtn">購入</button>
+  </fieldset>
+  <p id ="conf1"></p>
+  
+  <fieldset>
+    <legend>購入履歴</legend>
+    <table id="history">
+      <thead>
+        <tr>
+          <th>商品名</th><th>注文数</th><th>購入日時</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      </tbody>
+    </table>
+    <button id ="historyBtn">履歴を表示</button>
+  </fieldset>
+  
+</body>
+</html>
